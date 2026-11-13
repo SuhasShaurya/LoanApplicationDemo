@@ -15,6 +15,14 @@ class LoanApplicationState:
     decision_result: Optional[Dict[str, Any]] = None
     action_result: Optional[Dict[str, Any]] = None
 
+    # LLM Reasoning Fields
+    llm_analysis: Optional[Dict[str, Any]] = None
+    llm_analysis_enabled: bool = False
+    llm_analysis_error: Optional[str] = None
+    refined_decision: Optional[Dict[str, Any]] = None
+    llm_decision_refined: bool = False
+    refinement_error: Optional[str] = None
+
     final_decision: Optional[str] = None
     final_risk_score: Optional[float] = None
     final_confidence: Optional[float] = None
@@ -24,6 +32,7 @@ class LoanApplicationState:
     timestamp: Optional[str] = None
 
     error: Optional[str] = None
+    requires_manual_review: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert state to dictionary."""
@@ -35,6 +44,12 @@ class LoanApplicationState:
             "risk_analysis": self.risk_analysis,
             "decision_result": self.decision_result,
             "action_result": self.action_result,
+            "llm_analysis": self.llm_analysis,
+            "llm_analysis_enabled": self.llm_analysis_enabled,
+            "llm_analysis_error": self.llm_analysis_error,
+            "refined_decision": self.refined_decision,
+            "llm_decision_refined": self.llm_decision_refined,
+            "refinement_error": self.refinement_error,
             "final_decision": self.final_decision,
             "final_risk_score": self.final_risk_score,
             "final_confidence": self.final_confidence,
@@ -42,6 +57,7 @@ class LoanApplicationState:
             "case_id": self.case_id,
             "timestamp": self.timestamp,
             "error": self.error,
+            "requires_manual_review": self.requires_manual_review,
         }
 
     @staticmethod

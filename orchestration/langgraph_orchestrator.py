@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional, Tuple
 from functools import wraps
 from langgraph.graph import StateGraph, END
 from orchestration.state import LoanApplicationState
+from orchestration.llm_reasoning import LLMReasoningEngine, create_llm_reasoning_engine
 from agents.applicant_profile_agent import run_applicant_profile_analysis
 from agents.financial_risk_agent import run_financial_risk_analysis
 from agents.loan_decision_agent import run_loan_decision_analysis
@@ -37,6 +38,13 @@ class EnhancedLoanOrchestrator:
         """
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.llm_engine: Optional[LLMReasoningEngine] = None
+        if getattr(settings, 'USE_LLM_REASONING', True):
+            try:
+                self.llm_engine = create_llm_reasoning_engine()
+                logger.info("[orchestrator] LLM reasoning engine initialized")
+            except Exception as e:
+                logger.warning(f"[orchestrator] Failed to initialize LLM engine: {str(e)}")
         self.workflow = self._build_workflow()
         self.execution_trace = []
 
@@ -48,6 +56,8 @@ class EnhancedLoanOrchestrator:
         workflow.add_node("applicant_profile", self._node_applicant_profile)
         workflow.add_node("financial_risk", self._node_financial_risk)
         workflow.add_node("loan_decision", self._node_loan_decision)
+        workflow.add_node("llm_analysis", self._node_llm_analysis)
+        workflow.add_node("refinement_decision", self._node_refinement_decision)
         workflow.add_node("route_decision", self._node_route_decision)
         workflow.add_node("compliance_action", self._node_compliance_action)
         workflow.add_node("manual_review", self._node_manual_review)
@@ -60,7 +70,9 @@ class EnhancedLoanOrchestrator:
         # Add edges for sequential processing
         workflow.add_edge("applicant_profile", "financial_risk")
         workflow.add_edge("financial_risk", "loan_decision")
-        workflow.add_edge("loan_decision", "route_decision")
+        workflow.add_edge("loan_decision", "llm_analysis")
+        workflow.add_edge("llm_analysis", "refinement_decision")
+        workflow.add_edge("refinement_decision", "route_decision")
 
         # Conditional edges based on confidence and risk
         workflow.add_conditional_edges(
@@ -187,6 +199,109 @@ class EnhancedLoanOrchestrator:
             return s
 
         return execute(state)
+
+    def _node_llm_analysis(self, state: LoanApplicationState) -> LoanApplicationState:
+        """Execute LLM-based analysis with extended thinking."""
+        logger.info(f"[llm_analysis] Starting LLM analysis for {state.applicant_id}")
+
+        if not self.llm_engine:
+            logger.info("[llm_analysis] LLM engine not available, skipping")
+            return state
+
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            llm_analysis = loop.run_until_complete(
+                self.llm_engine.analyze_decision(
+                    state.profile_analysis,
+                    state.risk_analysis,
+                    state.applicant_data
+                )
+            )
+
+            state.llm_analysis = llm_analysis
+            state.llm_analysis_enabled = True
+
+            logger.info(
+                f"[llm_analysis] ✓ Analysis complete - "
+                f"Decision: {llm_analysis.get('decision')}, "
+                f"Confidence: {llm_analysis.get('confidence', 0):.2%}"
+            )
+
+            return state
+
+        except Exception as e:
+            logger.error(f"[llm_analysis] Failed: {str(e)}")
+            state.llm_analysis_error = str(e)
+            state.llm_analysis_enabled = False
+            return state
+
+    def _node_refinement_decision(self, state: LoanApplicationState) -> LoanApplicationState:
+        """Refine borderline decisions using LLM."""
+        logger.info(f"[refinement] Processing refinement for {state.applicant_id}")
+
+        if not self.llm_engine or not state.llm_analysis:
+            logger.info("[refinement] Skipping refinement (LLM analysis not available)")
+            return state
+
+        confidence_threshold = getattr(
+            settings,
+            'BORDERLINE_CONFIDENCE_THRESHOLD',
+            0.6
+        )
+
+        llm_confidence = state.llm_analysis.get('confidence', 1.0)
+
+        logger.info(
+            f"[refinement] LLM confidence: {llm_confidence:.2%}, "
+            f"Threshold: {confidence_threshold:.2%}"
+        )
+
+        if llm_confidence >= confidence_threshold:
+            logger.info("[refinement] Confidence above threshold, no refinement needed")
+            return state
+
+        logger.info(
+            f"[refinement] Confidence below threshold ({llm_confidence:.2%} < {confidence_threshold:.2%}), "
+            f"performing deeper analysis"
+        )
+
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            refined = loop.run_until_complete(
+                self.llm_engine.refine_borderline_decision(
+                    state.llm_analysis,
+                    state.applicant_data
+                )
+            )
+
+            state.refined_decision = refined
+
+            if refined.get('should_override'):
+                logger.info(
+                    f"[refinement] ✓ Overriding decision - "
+                    f"Original: {state.final_decision}, "
+                    f"Refined: {refined.get('decision')}, "
+                    f"New Confidence: {refined.get('confidence', 0):.2%}"
+                )
+                state.final_decision = refined.get('decision')
+                state.final_confidence = refined.get('confidence', state.final_confidence)
+                state.llm_decision_refined = True
+            else:
+                logger.info(
+                    f"[refinement] ✓ Refinement complete (no override) - "
+                    f"Decision remains: {state.final_decision}"
+                )
+
+            return state
+
+        except Exception as e:
+            logger.error(f"[refinement] Failed: {str(e)}")
+            state.refinement_error = str(e)
+            return state
 
     def _route_based_on_confidence(self, state: LoanApplicationState) -> str:
         """Route based on confidence level and risk.
@@ -371,6 +486,8 @@ class EnhancedLoanOrchestrator:
                 "applicant_profile",
                 "financial_risk",
                 "loan_decision",
+                "llm_analysis",
+                "refinement_decision",
                 "route_decision",
                 "compliance_action",
                 "manual_review",
@@ -380,7 +497,9 @@ class EnhancedLoanOrchestrator:
             "edges": [
                 ("applicant_profile", "financial_risk"),
                 ("financial_risk", "loan_decision"),
-                ("loan_decision", "route_decision"),
+                ("loan_decision", "llm_analysis"),
+                ("llm_analysis", "refinement_decision"),
+                ("refinement_decision", "route_decision"),
                 ("route_decision", "compliance_action"),
                 ("route_decision", "manual_review"),
                 ("route_decision", "error_handler"),

@@ -30,6 +30,25 @@ from .state import LoanApplicationState
 from .workflow_viz import WorkflowVisualizer, DecisionExplainer, print_full_report
 from .error_handlers import WorkflowException, RetryableException, NonRetryableException
 
+# Import LLM reasoning engine
+try:
+    from .llm_reasoning import LLMReasoningEngine, create_llm_reasoning_engine
+except ImportError:
+    LLMReasoningEngine = None
+    create_llm_reasoning_engine = None
+
+# Import prompts
+try:
+    from .prompts import (
+        format_initial_analysis_prompt,
+        format_refinement_prompt,
+        format_explanation_prompt
+    )
+except ImportError:
+    format_initial_analysis_prompt = None
+    format_refinement_prompt = None
+    format_explanation_prompt = None
+
 
 def get_default_orchestrator():
     """Get the default orchestrator based on configuration.
@@ -72,3 +91,13 @@ if LoanOrchestrator:
 
 if EnhancedLoanOrchestrator:
     __all__.extend(["EnhancedLoanOrchestrator", "create_enhanced_orchestrator"])
+
+if LLMReasoningEngine:
+    __all__.extend(["LLMReasoningEngine", "create_llm_reasoning_engine"])
+
+if format_initial_analysis_prompt:
+    __all__.extend([
+        "format_initial_analysis_prompt",
+        "format_refinement_prompt",
+        "format_explanation_prompt"
+    ])
