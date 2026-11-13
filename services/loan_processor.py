@@ -1,9 +1,18 @@
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
+from config.settings import settings
+
+# Try to import orchestrators in order of preference
 try:
-    from orchestration.orchestrator import create_orchestrator
-except ImportError:
-    from orchestration.simple_orchestrator import create_simple_orchestrator as create_orchestrator
+    if settings.USE_ENHANCED_ORCHESTRATOR:
+        from orchestration.langgraph_orchestrator import create_enhanced_orchestrator as create_orchestrator
+    else:
+        from orchestration.orchestrator import create_orchestrator
+except (ImportError, AttributeError):
+    try:
+        from orchestration.orchestrator import create_orchestrator
+    except ImportError:
+        from orchestration.simple_orchestrator import create_simple_orchestrator as create_orchestrator
 
 class LoanApplicationRequest(BaseModel):
     """Full loan application with user input data"""

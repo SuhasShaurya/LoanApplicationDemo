@@ -24,6 +24,14 @@ class Settings:
     MIN_INCOME_STABILITY_SCORE = 0.5
     MAX_DEBT_TO_INCOME_RATIO = 0.5
     MIN_CREDIT_SCORE = 600
-    MIN_CONFIDENCE_THRESHOLD = 0.6
+    MIN_CONFIDENCE_THRESHOLD = float(os.getenv("MIN_CONFIDENCE_THRESHOLD", 0.6))
+    MANUAL_REVIEW_CONFIDENCE_THRESHOLD = float(os.getenv("MANUAL_REVIEW_CONFIDENCE_THRESHOLD", 0.6))
+
+    # Retry Configuration
+    MAX_RETRIES = int(os.getenv("MAX_RETRIES", 3))
+    RETRY_DELAY = float(os.getenv("RETRY_DELAY", 1.0))
+
+    # Orchestrator Configuration
+    USE_ENHANCED_ORCHESTRATOR = os.getenv("USE_ENHANCED_ORCHESTRATOR", "true").lower() == "true"
 
 settings = Settings()
